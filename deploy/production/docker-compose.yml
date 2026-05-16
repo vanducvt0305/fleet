@@ -66,6 +66,8 @@ services:
       FLEET_REDIS_ADDRESS: redis:6379
       # Auth
       FLEET_AUTH_JWT_KEY: ${FLEET_AUTH_JWT_KEY}
+      # Server private key (required for MDM features — encrypts APNs/SCEP/BM secrets in DB)
+      FLEET_SERVER_PRIVATE_KEY: ${FLEET_SERVER_PRIVATE_KEY}
       # Logging
       FLEET_LOGGING_JSON: "true"
       FLEET_LOGGING_DEBUG: "false"

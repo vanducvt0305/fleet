@@ -60,6 +60,7 @@ Add these in GitHub → repo Settings → Secrets and variables → Actions.
 | `MYSQL_PASSWORD` | random 32+ chars | for `fleet` MySQL user |
 | `MYSQL_ROOT_PASSWORD` | random 32+ chars | for MySQL root |
 | `FLEET_AUTH_JWT_KEY` | random 32+ chars | session signing key |
+| `FLEET_SERVER_PRIVATE_KEY` | random 32+ bytes (base64) | required for MDM — encrypts APNs/SCEP/BM secrets at rest. Treat as permanent: rotating needs a Fleet-documented migration |
 
 Generate strong values:
 ```bash
@@ -77,7 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/vanducvt0305/fleet/main/scripts/for
   | sudo FLEET_DOMAIN=fleet.example.com bash
 ```
 
-It writes all 9 GitHub secrets (above) to `/root/fleet-secrets.txt`
+It writes all 10 GitHub secrets (above) to `/root/fleet-secrets.txt`
 (chmod 600). Paste them into the `production` environment, then run
 `Build & Push Docker image` once, then `Deploy to VPS`. After confirming
 secrets are saved on GitHub, `shred -u /root/fleet-secrets.txt ~deploy/.ssh/fleet-deploy*`.

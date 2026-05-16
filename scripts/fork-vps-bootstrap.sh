@@ -13,7 +13,7 @@
 #   4. ufw allow 22/80/443/tcp, enable
 #   5. mkdir -p /srv/fleet, chown deploy
 #   6. Generate 3 random secrets (MYSQL_PASSWORD, MYSQL_ROOT_PASSWORD, FLEET_AUTH_JWT_KEY)
-#   7. Write all 9 GitHub Environment secrets to /root/fleet-secrets.txt (chmod 600)
+#   7. Write all 10 GitHub Environment secrets to /root/fleet-secrets.txt (chmod 600)
 #
 # Idempotent: re-running aborts if /root/fleet-secrets.txt already exists, to avoid
 # rotating secrets that are already wired into GitHub. Delete that file first to redo.
@@ -84,6 +84,9 @@ echo "==> 6/7 generate strong random secrets"
 MYSQL_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 MYSQL_ROOT_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 FLEET_AUTH_JWT_KEY=$(openssl rand -base64 32 | tr -d '\n')
+# Required by Fleet for MDM features — encrypts APNs/SCEP/BM secrets in DB.
+# Rotating this key requires a Fleet-documented migration; treat as permanent.
+FLEET_SERVER_PRIVATE_KEY=$(openssl rand -base64 32 | tr -d '\n')
 
 echo "==> 7/7 collect VPS info + write $SECRETS_FILE"
 VPS_HOST=$(curl -fs4 https://ifconfig.me 2>/dev/null \
@@ -104,6 +107,7 @@ FLEET_DOMAIN=${FLEET_DOMAIN:-<FILL: your.domain.example.com>}
 MYSQL_PASSWORD=$MYSQL_PASSWORD
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 FLEET_AUTH_JWT_KEY=$FLEET_AUTH_JWT_KEY
+FLEET_SERVER_PRIVATE_KEY=$FLEET_SERVER_PRIVATE_KEY
 
 ==== VPS_SSH_KEY (paste the entire block below, including BEGIN/END lines) ====
 $PRIVATE_KEY
@@ -112,7 +116,7 @@ $PRIVATE_KEY
 1. Point your domain's A record at $VPS_HOST and wait until DNS resolves.
 2. Create GitHub environment 'production':
    https://github.com/vanducvt0305/fleet/settings/environments
-3. Add the 9 secrets above (VPS_HOST … VPS_SSH_KEY).
+3. Add the 10 secrets above (VPS_HOST … VPS_SSH_KEY).
 4. Trigger 'Build & Push Docker image' workflow once (manual run) to seed GHCR.
 5. Trigger 'Deploy to VPS' workflow. After it goes green and you've confirmed
    the secrets are saved in GitHub, securely delete this file:

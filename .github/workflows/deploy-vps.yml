@@ -67,6 +67,7 @@ jobs:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           FLEET_AUTH_JWT_KEY: ${{ secrets.FLEET_AUTH_JWT_KEY }}
+          FLEET_SERVER_PRIVATE_KEY: ${{ secrets.FLEET_SERVER_PRIVATE_KEY }}
         run: |
           ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" bash <<EOF
             set -euo pipefail
@@ -79,6 +80,7 @@ jobs:
           MYSQL_PASSWORD=${MYSQL_PASSWORD}
           MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
           FLEET_AUTH_JWT_KEY=${FLEET_AUTH_JWT_KEY}
+          FLEET_SERVER_PRIVATE_KEY=${FLEET_SERVER_PRIVATE_KEY}
           ENV
             chmod 600 .env
 

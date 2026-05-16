@@ -93,7 +93,7 @@ User logs into VPS via **password (not SSH key)** for daily access. The SSH key 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/vanducvt0305/fleet/main/scripts/fork-vps-bootstrap.sh | sudo FLEET_DOMAIN=fleet.example.com bash
    ```
-   Outputs all 9 GitHub secrets (including the SSH private key) to `/root/fleet-secrets.txt` (chmod 600). Idempotent guard refuses to overwrite if that file already exists.
+   Outputs all 10 GitHub secrets (including the SSH private key and `FLEET_SERVER_PRIVATE_KEY` for MDM encryption) to `/root/fleet-secrets.txt` (chmod 600). Idempotent guard refuses to overwrite if that file already exists.
 3. **GitHub side**: user creates **`production` environment** at https://github.com/vanducvt0305/fleet/settings/environments and pastes each `KEY=VALUE` from the secrets file. The `workflow_run` auto-deploy trigger is already enabled.
 4. **Trigger image build** (only needed once if GHCR is empty): `gh workflow run "Build & Push Docker image" -R vanducvt0305/fleet`. Subsequent main-branch pushes trigger it automatically.
 5. **First deploy** (manual): `gh workflow run "Deploy to VPS" -R vanducvt0305/fleet`. Workflow scp's `deploy/production/{docker-compose.yml,Caddyfile}` to `${VPS_DEPLOY_DIR}`, writes `.env`, pulls image, runs migrations, then `docker compose up -d`. Caddy provisions a Let's Encrypt cert on first start (HTTP-01 needs port 80 reachable + DNS resolving).
