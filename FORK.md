@@ -68,12 +68,23 @@ openssl rand -base64 32   # for each password / jwt key
 
 ### VPS prerequisites
 
-On the VPS, install Docker + docker compose v2 and open ports 80, 443.
-The deploy workflow handles everything else (writes `.env`, pulls image,
-runs migrations, restarts compose).
+Use `scripts/fork-vps-bootstrap.sh` to set everything up on a fresh
+Ubuntu host (installs Docker, creates `deploy` user, generates the SSH
+key + secrets, opens ports 22/80/443):
 
-Point `A` record of `FLEET_DOMAIN` to the VPS IP. Caddy gets a Let's
-Encrypt cert on first start (HTTP-01 challenge needs port 80 reachable).
+```bash
+curl -fsSL https://raw.githubusercontent.com/vanducvt0305/fleet/main/scripts/fork-vps-bootstrap.sh \
+  | sudo FLEET_DOMAIN=fleet.example.com bash
+```
+
+It writes all 9 GitHub secrets (above) to `/root/fleet-secrets.txt`
+(chmod 600). Paste them into the `production` environment, then run
+`Build & Push Docker image` once, then `Deploy to VPS`. After confirming
+secrets are saved on GitHub, `shred -u /root/fleet-secrets.txt ~deploy/.ssh/fleet-deploy*`.
+
+Point `A` record of `FLEET_DOMAIN` to the VPS IP before triggering deploy.
+Caddy gets a Let's Encrypt cert on first start (HTTP-01 needs port 80
+reachable + DNS resolving).
 
 ## Image registry
 
