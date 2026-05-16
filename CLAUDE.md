@@ -29,7 +29,7 @@ responding. See `FORK.md` for detailed setup steps and the secret list.
 |---|---|---|
 | `ci-pr.yml` | PR to `main` | golangci-lint, `go vet`/`gofmt`, `yarn lint`, smoke `go build` (no MySQL/Redis) |
 | `docker-build.yml` | push `main`, tag `v*`, manual | Build binary + image, push to `ghcr.io/vanducvt0305/fleet` |
-| `deploy-vps.yml` | **manual only** for now | SSH into VPS, pull image, migrate DB, restart compose. `workflow_run` auto-trigger is commented out until first manual run succeeds |
+| `deploy-vps.yml` | manual + `workflow_run` after `docker-build` on `main` | SSH into VPS, pull image, migrate DB, restart compose |
 | `sync-upstream.yml` | weekly Mon 03:00 UTC + manual | Auto-PR from `fleetdm/fleet:main` into fork |
 
 ### Upstream noise disabled
@@ -89,29 +89,19 @@ docker compose up -d
 User logs into VPS via **password (not SSH key)** for daily access. The SSH key below is created *specifically* for GitHub Actions deploy — user's password login is unaffected.
 
 1. **Domain**: user points `fleet.<theirs>.com` A record at VPS IP.
-2. **Prerequisites on VPS**:
+2. **Bootstrap VPS** (single command — installs Docker, creates `deploy` user, generates SSH key, opens firewall, generates secrets):
    ```bash
-   apt update && apt install -y docker.io docker-compose-v2
-   ufw allow 22,80,443/tcp
-   # (Optional) create a non-root user named `deploy` and add to docker group:
-   adduser deploy && usermod -aG docker deploy
+   curl -fsSL https://raw.githubusercontent.com/vanducvt0305/fleet/main/scripts/fork-vps-bootstrap.sh | sudo FLEET_DOMAIN=fleet.example.com bash
    ```
-3. **Create deploy SSH key on VPS** (no `ssh-copy-id` needed — public key stays here):
+   Outputs all 9 GitHub secrets (including the SSH private key) to `/root/fleet-secrets.txt` (chmod 600). Idempotent guard refuses to overwrite if that file already exists.
+3. **GitHub side**: user creates **`production` environment** at https://github.com/vanducvt0305/fleet/settings/environments and pastes each `KEY=VALUE` from the secrets file. The `workflow_run` auto-deploy trigger is already enabled.
+4. **Trigger image build** (only needed once if GHCR is empty): `gh workflow run "Build & Push Docker image" -R vanducvt0305/fleet`. Subsequent main-branch pushes trigger it automatically.
+5. **First deploy** (manual): `gh workflow run "Deploy to VPS" -R vanducvt0305/fleet`. Workflow scp's `deploy/production/{docker-compose.yml,Caddyfile}` to `${VPS_DEPLOY_DIR}`, writes `.env`, pulls image, runs migrations, then `docker compose up -d`. Caddy provisions a Let's Encrypt cert on first start (HTTP-01 needs port 80 reachable + DNS resolving).
+6. After first deploy succeeds, shred the secrets file + key on the VPS (the workflow doesn't need them any more):
    ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/fleet-deploy -N "" -C "github-actions-deploy"
-   cat ~/.ssh/fleet-deploy.pub >> ~/.ssh/authorized_keys
-   chmod 600 ~/.ssh/authorized_keys
-   cat ~/.ssh/fleet-deploy   # show private key for user to copy into GitHub Secret
+   shred -u /root/fleet-secrets.txt ~deploy/.ssh/fleet-deploy ~deploy/.ssh/fleet-deploy.pub
    ```
-   After user confirms the private key is in the GitHub secret `VPS_SSH_KEY`, securely delete it from VPS:
-   ```bash
-   shred -u ~/.ssh/fleet-deploy
-   ```
-4. **GitHub side**: user creates **`production` environment** at https://github.com/vanducvt0305/fleet/settings/environments and adds the secrets listed in `FORK.md` § "Secrets required".
-5. **First deploy** (manual): `gh workflow run "Deploy to VPS" -R vanducvt0305/fleet`
-6. Workflow scp's `deploy/production/{docker-compose.yml,Caddyfile}` to `${VPS_DEPLOY_DIR}`, writes `.env`, pulls image, runs `fleet prepare db`, then `docker compose up -d`.
-7. Caddy provisions Let's Encrypt cert on first start (HTTP-01 challenge via port 80 — domain must already resolve to VPS).
-8. Once first deploy succeeds, uncomment the `workflow_run` block in `.github/workflows/deploy-vps.yml` to auto-deploy on every successful main-branch image build.
+7. From now on, every push to `main` auto-builds + auto-deploys via `workflow_run`.
 
 ---
 
