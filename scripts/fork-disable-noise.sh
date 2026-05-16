@@ -26,7 +26,12 @@ KEEP=(
   "scorecards-analysis.yml"
 )
 
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+# Resolve fork repo by preferring `origin` remote (avoids picking up the
+# upstream remote that `gh repo view` may default to).
+REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/]([^/]+/[^/.]+)(\.git)?#\1#')
+if [ -z "$REPO" ]; then
+  REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+fi
 echo "Disabling noise workflows on $REPO"
 echo "Keeping enabled: ${KEEP[*]}"
 echo
