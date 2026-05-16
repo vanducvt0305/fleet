@@ -1,0 +1,79 @@
+name: CI - Pull Request
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-lint:
+    name: Go lint & vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./cmd/... ./server/... ./pkg/...
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l cmd server pkg 2>/dev/null | grep -v '^vendor/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=10m
+          only-new-issues: true
+
+  js-lint:
+    name: JS lint & type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+
+      - run: yarn install --frozen-lockfile
+
+      - run: yarn lint
+
+  go-build-smoke:
+    name: Go build smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go build (without bindata)
+        run: |
+          go build -o /tmp/fleet ./cmd/fleet
+          go build -o /tmp/fleetctl ./cmd/fleetctl
+          /tmp/fleet version
+          /tmp/fleetctl --help > /dev/null

@@ -1,0 +1,26 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy fleet:8080 {
+		# Fleet returns large CSV/JSON exports; bump timeouts.
+		transport http {
+			read_timeout 10m
+			write_timeout 10m
+		}
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Hide server signature, basic security headers.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

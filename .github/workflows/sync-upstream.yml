@@ -1,0 +1,89 @@
+name: Sync from upstream fleetdm/fleet
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Every Monday 03:00 UTC (10:00 ICT)
+  workflow_dispatch:
+    inputs:
+      base_branch:
+        description: 'Branch on fork to sync into'
+        required: false
+        default: main
+      upstream_branch:
+        description: 'Branch on upstream to pull from'
+        required: false
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        env:
+          BASE: ${{ inputs.base_branch || 'main' }}
+          UPSTREAM: ${{ inputs.upstream_branch || 'main' }}
+        run: |
+          git remote add upstream https://github.com/fleetdm/fleet.git || true
+          git fetch upstream "$UPSTREAM"
+
+      - name: Create sync branch
+        id: branch
+        env:
+          BASE: ${{ inputs.base_branch || 'main' }}
+          UPSTREAM: ${{ inputs.upstream_branch || 'main' }}
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          BRANCH="sync/upstream-${DATE}"
+          UPSTREAM_SHA=$(git rev-parse --short "upstream/$UPSTREAM")
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+
+          git checkout "$BASE"
+          git checkout -b "$BRANCH"
+
+          if git merge --no-ff --no-edit "upstream/$UPSTREAM"; then
+            echo "merge_status=clean" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge_status=conflict" >> "$GITHUB_OUTPUT"
+            # Abort merge so PR shows the conflict to be resolved manually
+            git merge --abort
+            git reset --hard "upstream/$UPSTREAM"
+          fi
+
+      - name: Push sync branch
+        run: git push -f origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ inputs.base_branch || 'main' }}
+        run: |
+          STATUS="${{ steps.branch.outputs.merge_status }}"
+          SHA="${{ steps.branch.outputs.upstream_sha }}"
+          BRANCH="${{ steps.branch.outputs.branch }}"
+
+          if [ "$STATUS" = "conflict" ]; then
+            TITLE="chore(sync): upstream ${SHA} (CONFLICT — manual merge needed)"
+            BODY="Automated sync from \`fleetdm/fleet@${SHA}\` had merge conflicts. Branch was hard-reset to upstream — review and resolve before merging."
+          else
+            TITLE="chore(sync): upstream ${SHA}"
+            BODY="Automated weekly sync from \`fleetdm/fleet@${SHA}\`. Clean merge."
+          fi
+
+          if ! gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$BODY" 2>&1; then
+            echo "PR already exists or no changes; skipping."
+          fi

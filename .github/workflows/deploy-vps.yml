@@ -1,0 +1,102 @@
+name: Deploy to VPS
+
+on:
+  workflow_run:
+    workflows: ["Build & Push Docker image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy compose files to VPS
+        env:
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+          DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+        run: |
+          ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "mkdir -p $DEPLOY_DIR"
+          scp -P "${SSH_PORT:-22}" \
+            deploy/production/docker-compose.yml \
+            deploy/production/Caddyfile \
+            "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/"
+
+      - name: Deploy
+        env:
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_HOST: ${{ secrets.VPS_HOST }}
+          SSH_PORT: ${{ secrets.VPS_PORT }}
+          DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOMAIN: ${{ secrets.FLEET_DOMAIN }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          FLEET_AUTH_JWT_KEY: ${{ secrets.FLEET_AUTH_JWT_KEY }}
+        run: |
+          ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" bash <<EOF
+            set -euo pipefail
+            cd "$DEPLOY_DIR"
+
+            # Write .env
+            cat > .env <<ENV
+          FLEET_IMAGE=ghcr.io/${{ github.repository }}:${IMAGE_TAG}
+          DOMAIN=${DOMAIN}
+          MYSQL_PASSWORD=${MYSQL_PASSWORD}
+          MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+          FLEET_AUTH_JWT_KEY=${FLEET_AUTH_JWT_KEY}
+          ENV
+            chmod 600 .env
+
+            # Login to GHCR (image is private by default on fork)
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+            # Pull, migrate, then restart
+            docker compose pull
+            docker compose run --rm fleet-migrate
+            docker compose up -d --remove-orphans
+
+            # Wait for health
+            for i in {1..30}; do
+              if docker compose exec -T fleet wget -qO- http://localhost:8080/healthz >/dev/null 2>&1; then
+                echo "Fleet healthy"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Fleet failed to become healthy"
+            docker compose logs --tail=100 fleet
+            exit 1
+          EOF
