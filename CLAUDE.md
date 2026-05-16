@@ -86,14 +86,32 @@ docker compose up -d
 
 ## Deploy to VPS — flow
 
-1. User points domain (`fleet.<theirs>.com`) A record at VPS IP.
-2. User installs Docker + compose v2 on VPS, opens ports 22/80/443.
-3. User generates SSH key (`ssh-keygen -t ed25519 -f ~/.ssh/fleet-deploy`) and adds public key to VPS `~/.ssh/authorized_keys`.
-4. User creates **`production` environment** in GitHub repo settings and adds the secrets listed in `FORK.md` § "Secrets required".
-5. User triggers `Deploy to VPS` workflow manually (`gh workflow run`).
+User logs into VPS via **password (not SSH key)** for daily access. The SSH key below is created *specifically* for GitHub Actions deploy — user's password login is unaffected.
+
+1. **Domain**: user points `fleet.<theirs>.com` A record at VPS IP.
+2. **Prerequisites on VPS**:
+   ```bash
+   apt update && apt install -y docker.io docker-compose-v2
+   ufw allow 22,80,443/tcp
+   # (Optional) create a non-root user named `deploy` and add to docker group:
+   adduser deploy && usermod -aG docker deploy
+   ```
+3. **Create deploy SSH key on VPS** (no `ssh-copy-id` needed — public key stays here):
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/fleet-deploy -N "" -C "github-actions-deploy"
+   cat ~/.ssh/fleet-deploy.pub >> ~/.ssh/authorized_keys
+   chmod 600 ~/.ssh/authorized_keys
+   cat ~/.ssh/fleet-deploy   # show private key for user to copy into GitHub Secret
+   ```
+   After user confirms the private key is in the GitHub secret `VPS_SSH_KEY`, securely delete it from VPS:
+   ```bash
+   shred -u ~/.ssh/fleet-deploy
+   ```
+4. **GitHub side**: user creates **`production` environment** at https://github.com/vanducvt0305/fleet/settings/environments and adds the secrets listed in `FORK.md` § "Secrets required".
+5. **First deploy** (manual): `gh workflow run "Deploy to VPS" -R vanducvt0305/fleet`
 6. Workflow scp's `deploy/production/{docker-compose.yml,Caddyfile}` to `${VPS_DEPLOY_DIR}`, writes `.env`, pulls image, runs `fleet prepare db`, then `docker compose up -d`.
-7. Caddy provisions Let's Encrypt cert on first start (HTTP-01 challenge via port 80).
-8. Once verified working, uncomment the `workflow_run` block in `deploy-vps.yml` to auto-deploy on every successful main-branch image build.
+7. Caddy provisions Let's Encrypt cert on first start (HTTP-01 challenge via port 80 — domain must already resolve to VPS).
+8. Once first deploy succeeds, uncomment the `workflow_run` block in `.github/workflows/deploy-vps.yml` to auto-deploy on every successful main-branch image build.
 
 ---
 
