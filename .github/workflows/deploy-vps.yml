@@ -1,16 +1,19 @@
 name: Deploy to VPS
 
 on:
-  workflow_run:
-    workflows: ["Build & Push Docker image"]
-    types: [completed]
-    branches: [main]
+  # Manual deploy until VPS secrets are configured. After your first
+  # successful manual run, uncomment the `workflow_run` block below to
+  # auto-deploy on every successful main-branch image build.
   workflow_dispatch:
     inputs:
       image_tag:
         description: 'Image tag to deploy (default: latest)'
         required: false
         default: latest
+  # workflow_run:
+  #   workflows: ["Build & Push Docker image"]
+  #   types: [completed]
+  #   branches: [main]
 
 permissions:
   contents: read
@@ -21,7 +24,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
